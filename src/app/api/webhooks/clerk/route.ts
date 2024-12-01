@@ -2,7 +2,7 @@ import { Webhook } from "svix";
 import { headers } from "next/headers";
 import { WebhookEvent } from "@clerk/nextjs/server";
 import { env } from "@/data/env/server";
-import { createUserSubscription } from "@/server/db/subscription";
+import { createUserSubscription } from "@/server/db/subscriptions";
 import { deleteUser } from "@/server/db/users";
 
 export async function POST(req: Request) {

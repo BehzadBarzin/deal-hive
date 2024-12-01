@@ -11,7 +11,7 @@ const DashboardLayout: FC<IProps> = ({ children }) => {
     <div className="bg-accent/5 min-h-screen">
       <DashboardNavBar />
       <DashboardMobileNavBar />
-      <div className="container py-6">{children}</div>
+      <div className="container py-6 pt-28">{children}</div>
     </div>
   );
 };
