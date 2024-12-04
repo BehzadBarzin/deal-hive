@@ -3,7 +3,10 @@
 import { ProductDetails, productDetailsSchema } from "@/schemas/products";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { createProduct as createProductDb } from "../db/products";
+import {
+  createProduct as createProductDb,
+  deleteProduct as deleteProductDb,
+} from "../db/products";
 
 // Server Action: Create Product In DB
 export async function createProduct(
@@ -23,3 +26,23 @@ export async function createProduct(
 
   redirect(`/dashboard/products/${id}/edit?tab=countries`);
 }
+
+// -------------------------------------------------------------------------------------------------
+// Server Action: Delete Product
+export async function deleteProduct(id: string) {
+  const { userId } = await auth();
+  const errorMessage = "There was an error deleting your product";
+
+  if (userId == null) {
+    return { error: true, message: errorMessage };
+  }
+
+  const isSuccess = await deleteProductDb({ id, userId });
+
+  return {
+    error: !isSuccess,
+    message: isSuccess ? "Successfully deleted your product" : errorMessage,
+  };
+}
+
+// -------------------------------------------------------------------------------------------------

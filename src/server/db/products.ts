@@ -1,6 +1,6 @@
 import { db } from "@/drizzle/db";
 import { ProductCustomizationTable, ProductTable } from "@/drizzle/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export function getProducts(userId: string, opts: { limit?: number } = {}) {
   return db.query.ProductTable.findMany({
@@ -39,6 +39,22 @@ export async function createProduct(data: typeof ProductTable.$inferInsert) {
   }
 
   return newProduct;
+}
+
+// -------------------------------------------------------------------------------------------------
+// Delete Product from DB
+export async function deleteProduct({
+  id,
+  userId,
+}: {
+  id: string;
+  userId: string;
+}) {
+  const { rowCount } = await db
+    .delete(ProductTable)
+    .where(and(eq(ProductTable.id, id), eq(ProductTable.clerkUserId, userId)));
+
+  return rowCount > 0;
 }
 
 // -------------------------------------------------------------------------------------------------
