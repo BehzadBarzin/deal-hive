@@ -1,5 +1,6 @@
 import { db } from "@/drizzle/db";
 import { ProductTable, UserSubscriptionTable } from "@/drizzle/schema";
+import { CACHE_TOPICS, revalidateDbCache } from "@/lib/cache";
 import { eq } from "drizzle-orm";
 
 // -------------------------------------------------------------------------------------------------
@@ -22,6 +23,24 @@ export async function deleteUser(clerkUserId: string) {
         id: ProductTable.id,
       }),
   ]);
+
+  // Revalidate cache
+  userSubscriptions.forEach((sub) => {
+    revalidateDbCache({
+      topic: CACHE_TOPICS.subscription,
+      id: sub.id,
+      userId: clerkUserId,
+    });
+  });
+
+  // Revalidate cache
+  products.forEach((prod) => {
+    revalidateDbCache({
+      topic: CACHE_TOPICS.products,
+      id: prod.id,
+      userId: clerkUserId,
+    });
+  });
 
   return [userSubscriptions, products];
 }

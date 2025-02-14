@@ -1,5 +1,6 @@
 import { db } from "@/drizzle/db";
 import { UserSubscriptionTable } from "@/drizzle/schema";
+import { CACHE_TOPICS, revalidateDbCache } from "@/lib/cache";
 
 // -------------------------------------------------------------------------------------------------
 // Create User Subscription
@@ -18,6 +19,15 @@ export async function createUserSubscription(
       id: UserSubscriptionTable.id,
       userId: UserSubscriptionTable.clerkUserId,
     });
+
+  // Revalidate cache
+  if (newSubscription != null) {
+    revalidateDbCache({
+      topic: CACHE_TOPICS.subscription,
+      userId: newSubscription.userId,
+      id: newSubscription.id,
+    });
+  }
 
   return newSubscription;
 }
