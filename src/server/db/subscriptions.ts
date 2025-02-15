@@ -1,3 +1,4 @@
+import { subscriptionTiers } from "@/data/subscriptionTiers";
 import { db } from "@/drizzle/db";
 import { UserSubscriptionTable } from "@/drizzle/schema";
 import { CACHE_TOPICS, revalidateDbCache } from "@/lib/cache";
@@ -31,3 +32,21 @@ export async function createUserSubscription(
 
   return newSubscription;
 }
+
+// -------------------------------------------------------------------------------------------------
+
+export async function getUserSubscriptionTier(userId: string) {
+  const subscription = await _getUserSubscription(userId);
+
+  if (subscription == null) throw new Error("User has no subscription");
+
+  return subscriptionTiers[subscription.tier];
+}
+
+function _getUserSubscription(userId: string) {
+  return db.query.UserSubscriptionTable.findFirst({
+    where: ({ clerkUserId }, { eq }) => eq(clerkUserId, userId),
+  });
+}
+
+// -------------------------------------------------------------------------------------------------

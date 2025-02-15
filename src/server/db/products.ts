@@ -1,12 +1,19 @@
 import { db } from "@/drizzle/db";
-import { ProductCustomizationTable, ProductTable } from "@/drizzle/schema";
+import {
+  CountryGroupDiscountTable,
+  ProductCustomizationTable,
+  ProductTable,
+} from "@/drizzle/schema";
 import {
   CACHE_TOPICS,
   cacheFunction,
+  getGlobalTag,
+  getIdTag,
   getUserTag,
   revalidateDbCache,
 } from "@/lib/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { BatchItem } from "drizzle-orm/batch";
 
 // Get product from DB (with caching)
 export function getProducts(userId: string, opts: { limit?: number } = {}) {
@@ -88,6 +95,218 @@ export async function deleteProduct({
   }
 
   return rowCount > 0;
+}
+
+// -------------------------------------------------------------------------------------------------
+// Get single product (with caching)
+export async function getProduct(opts: { id: string; userId: string }) {
+  // Wrap the _getProduct function with cache
+  const cachedFunction = cacheFunction(_getProduct, {
+    tags: [getIdTag(opts.id, CACHE_TOPICS.products)],
+  });
+
+  // Call the cached function's response
+  return cachedFunction(opts);
+}
+
+// Get single product (no caching)
+async function _getProduct(opts: { id: string; userId: string }) {
+  return db.query.ProductTable.findFirst({
+    where: (fields, { eq, and }) => {
+      return and(eq(fields.id, opts.id), eq(fields.clerkUserId, opts.userId));
+    },
+  });
+}
+
+// -------------------------------------------------------------------------------------------------
+export async function updateProduct(
+  data: Partial<typeof ProductTable.$inferInsert>,
+  { id, userId }: { id: string; userId: string }
+) {
+  const { rowCount } = await db
+    .update(ProductTable)
+    .set(data)
+    .where(and(eq(ProductTable.clerkUserId, userId), eq(ProductTable.id, id)));
+
+  if (rowCount > 0) {
+    revalidateDbCache({
+      topic: CACHE_TOPICS.products,
+      userId,
+      id,
+    });
+  }
+
+  return rowCount > 0;
+}
+
+// -------------------------------------------------------------------------------------------------
+
+export async function updateCountryDiscounts(
+  deleteGroup: { countryGroupId: string }[],
+  insertGroup: (typeof CountryGroupDiscountTable.$inferInsert)[],
+  { productId, userId }: { productId: string; userId: string }
+) {
+  const product = await getProduct({ id: productId, userId });
+  if (product == null) return false;
+
+  const statements: BatchItem<"pg">[] = [];
+  if (deleteGroup.length > 0) {
+    statements.push(
+      db.delete(CountryGroupDiscountTable).where(
+        and(
+          eq(CountryGroupDiscountTable.productId, productId),
+          inArray(
+            CountryGroupDiscountTable.countryGroupId,
+            deleteGroup.map((group) => group.countryGroupId)
+          )
+        )
+      )
+    );
+  }
+
+  if (insertGroup.length > 0) {
+    statements.push(
+      db
+        .insert(CountryGroupDiscountTable)
+        .values(insertGroup)
+        .onConflictDoUpdate({
+          target: [
+            CountryGroupDiscountTable.productId,
+            CountryGroupDiscountTable.countryGroupId,
+          ],
+          set: {
+            coupon: sql.raw(
+              `excluded.${CountryGroupDiscountTable.coupon.name}`
+            ),
+            discountPercentage: sql.raw(
+              `excluded.${CountryGroupDiscountTable.discountPercentage.name}`
+            ),
+          },
+        })
+    );
+  }
+
+  if (statements.length > 0) {
+    await db.batch(statements as [BatchItem<"pg">]);
+  }
+
+  revalidateDbCache({
+    topic: CACHE_TOPICS.products,
+    userId,
+    id: productId,
+  });
+}
+// -------------------------------------------------------------------------------------------------
+
+export function getProductCountryGroups({
+  productId,
+  userId,
+}: {
+  productId: string;
+  userId: string;
+}) {
+  const cacheFn = cacheFunction(_getProductCountryGroups, {
+    tags: [
+      getIdTag(productId, CACHE_TOPICS.products),
+      getGlobalTag(CACHE_TOPICS.countries),
+      getGlobalTag(CACHE_TOPICS.countryGroups),
+    ],
+  });
+
+  return cacheFn({ productId, userId });
+}
+
+async function _getProductCountryGroups({
+  userId,
+  productId,
+}: {
+  userId: string;
+  productId: string;
+}) {
+  // Get the product from `getProduct` function to make sure that the user has access to the product
+  const product = await getProduct({ id: productId, userId });
+  if (product == null) return [];
+
+  const data = await db.query.CountryGroupTable.findMany({
+    with: {
+      countries: {
+        columns: {
+          name: true,
+          code: true,
+        },
+      },
+      countryGroupDiscounts: {
+        columns: {
+          coupon: true,
+          discountPercentage: true,
+        },
+        where: ({ productId: id }, { eq }) => eq(id, productId),
+        limit: 1,
+      },
+    },
+  });
+
+  return data.map((group) => {
+    return {
+      id: group.id,
+      name: group.name,
+      recommendedDiscountPercentage: group.recommendedDiscountPercentage,
+      countries: group.countries,
+      discount: group.countryGroupDiscounts.at(0),
+    };
+  });
+}
+// -------------------------------------------------------------------------------------------------
+
+export function getProductCustomization({
+  productId,
+  userId,
+}: {
+  productId: string;
+  userId: string;
+}) {
+  const cacheFn = cacheFunction(_getProductCustomization, {
+    tags: [getIdTag(productId, CACHE_TOPICS.products)],
+  });
+
+  return cacheFn({ productId, userId });
+}
+
+async function _getProductCustomization({
+  userId,
+  productId,
+}: {
+  userId: string;
+  productId: string;
+}) {
+  const data = await db.query.ProductTable.findFirst({
+    where: ({ id, clerkUserId }, { and, eq }) =>
+      and(eq(id, productId), eq(clerkUserId, userId)),
+    with: {
+      productCustomization: true,
+    },
+  });
+
+  return data?.productCustomization;
+}
+// -------------------------------------------------------------------------------------------------
+export async function updateProductCustomization(
+  data: Partial<typeof ProductCustomizationTable.$inferInsert>,
+  { productId, userId }: { productId: string; userId: string }
+) {
+  const product = await getProduct({ id: productId, userId });
+  if (product == null) return;
+
+  await db
+    .update(ProductCustomizationTable)
+    .set(data)
+    .where(eq(ProductCustomizationTable.productId, productId));
+
+  revalidateDbCache({
+    topic: CACHE_TOPICS.products,
+    userId,
+    id: productId,
+  });
 }
 
 // -------------------------------------------------------------------------------------------------

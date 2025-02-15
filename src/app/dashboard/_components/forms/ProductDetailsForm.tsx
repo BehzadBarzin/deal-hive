@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { RequiredLabelIcon } from "@/components/RequiredLabelIcon";
 import { ProductDetails, productDetailsSchema } from "@/schemas/products";
-import { createProduct } from "@/server/actions/products";
+import { createProduct, updateProduct } from "@/server/actions/products";
 import { useToast } from "@/hooks/use-toast";
 
 /**
@@ -28,12 +28,24 @@ import { useToast } from "@/hooks/use-toast";
  * form fields (all fields are controlled components and name property is type-safe)
  */
 
-const ProductDetailsForm = () => {
+const ProductDetailsForm = ({
+  product,
+}: {
+  product?: {
+    id: string;
+    name: string;
+    description: string | null;
+    url: string;
+  };
+}) => {
   // -----------------------------------------------------------------------------------------------
   const form = useForm<ProductDetails>({
     resolver: zodResolver(productDetailsSchema),
+    // When editing a product, a `product` prop would be passed to this component. So, we'll use its field values as initial form values.
     defaultValues: {
-      name: "",
+      name: product ? product.name : "",
+      description: product ? product.description || "" : "",
+      url: product ? product.url : "",
     },
   });
   // -----------------------------------------------------------------------------------------------
@@ -42,8 +54,13 @@ const ProductDetailsForm = () => {
   // -----------------------------------------------------------------------------------------------
   // Form submission function called by useForm's `handleSubmit` function which passes validated form data to it
   const onSubmit = async (data: ProductDetails) => {
-    // Call server action to create product
-    const response = await createProduct(data);
+    // Determine the action: create/edit
+    const action = product
+      ? updateProduct.bind(null, product.id)
+      : createProduct;
+
+    // Call server action to create/update product
+    const response = await action(data);
 
     // If server action payload contains `message`
     if (response?.message) {
