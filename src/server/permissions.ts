@@ -37,3 +37,10 @@ export async function canShowDiscountBanner(userId: string | null) {
 }
 
 // -------------------------------------------------------------------------------------------------
+export async function canAccessAnalytics(userId: string | null) {
+  if (userId == null) return false;
+  const tier = await getUserSubscriptionTier(userId);
+  return tier.canAccessAnalytics;
+}
+
+// -------------------------------------------------------------------------------------------------

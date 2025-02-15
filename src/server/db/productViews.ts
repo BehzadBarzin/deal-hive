@@ -1,12 +1,22 @@
 import { db } from "@/drizzle/db";
-import { ProductTable, ProductViewTable } from "@/drizzle/schema";
+import {
+  CountryGroupTable,
+  CountryTable,
+  ProductTable,
+  ProductViewTable,
+} from "@/drizzle/schema";
 import {
   CACHE_TOPICS,
   cacheFunction,
+  getGlobalTag,
+  getIdTag,
   getUserTag,
   revalidateDbCache,
 } from "@/lib/cache";
-import { and, count, eq, gte } from "drizzle-orm";
+import { startOfDay, subDays } from "date-fns";
+import { and, count, desc, eq, gte, SQL, sql } from "drizzle-orm";
+
+import { tz } from "@date-fns/tz";
 
 // -------------------------------------------------------------------------------------------------
 
@@ -61,5 +71,264 @@ export async function createProductView({
     });
   }
 }
+
+// -------------------------------------------------------------------------------------------------
+export function getViewsByCountryChartData({
+  timezone,
+  productId,
+  userId,
+  interval,
+}: {
+  timezone: string;
+  productId?: string;
+  userId: string;
+  interval: (typeof CHART_INTERVALS)[keyof typeof CHART_INTERVALS];
+}) {
+  const cacheFn = cacheFunction(_getViewsByCountryChartData, {
+    tags: [
+      getUserTag(userId, CACHE_TOPICS.productViews),
+      productId == null
+        ? getUserTag(userId, CACHE_TOPICS.products)
+        : getIdTag(productId, CACHE_TOPICS.products),
+      getGlobalTag(CACHE_TOPICS.countries),
+    ],
+  });
+
+  return cacheFn({
+    timezone,
+    productId,
+    userId,
+    interval,
+  });
+}
+
+async function _getViewsByCountryChartData({
+  timezone,
+  productId,
+  userId,
+  interval,
+}: {
+  timezone: string;
+  productId?: string;
+  userId: string;
+  interval: (typeof CHART_INTERVALS)[keyof typeof CHART_INTERVALS];
+}) {
+  const startDate = startOfDay(interval.startDate, { in: tz(timezone) });
+  const productsSq = getProductSubQuery(userId, productId);
+  return await db
+    .with(productsSq)
+    .select({
+      views: count(ProductViewTable.visitedAt),
+      countryName: CountryTable.name,
+      countryCode: CountryTable.code,
+    })
+    .from(ProductViewTable)
+    .innerJoin(productsSq, eq(productsSq.id, ProductViewTable.productId))
+    .innerJoin(CountryTable, eq(CountryTable.id, ProductViewTable.countryId))
+    .where(
+      gte(
+        sql`${ProductViewTable.visitedAt} AT TIME ZONE ${timezone}`.inlineParams(),
+        startDate
+      )
+    )
+    .groupBy(({ countryCode, countryName }) => [countryCode, countryName])
+    .orderBy(({ views }) => desc(views))
+    .limit(25);
+}
+// -------------------------------------------------------------------------------------------------
+export function getViewsByDealHiveChartData({
+  timezone,
+  productId,
+  userId,
+  interval,
+}: {
+  timezone: string;
+  productId?: string;
+  userId: string;
+  interval: (typeof CHART_INTERVALS)[keyof typeof CHART_INTERVALS];
+}) {
+  const cacheFn = cacheFunction(_getViewsByDealHiveChartData, {
+    tags: [
+      getUserTag(userId, CACHE_TOPICS.productViews),
+      productId == null
+        ? getUserTag(userId, CACHE_TOPICS.products)
+        : getIdTag(productId, CACHE_TOPICS.products),
+      getGlobalTag(CACHE_TOPICS.countries),
+      getGlobalTag(CACHE_TOPICS.countryGroups),
+    ],
+  });
+
+  return cacheFn({
+    timezone,
+    productId,
+    userId,
+    interval,
+  });
+}
+
+async function _getViewsByDealHiveChartData({
+  timezone,
+  productId,
+  userId,
+  interval,
+}: {
+  timezone: string;
+  productId?: string;
+  userId: string;
+  interval: (typeof CHART_INTERVALS)[keyof typeof CHART_INTERVALS];
+}) {
+  const startDate = startOfDay(interval.startDate, { in: tz(timezone) });
+  const productsSq = getProductSubQuery(userId, productId);
+  const productViewSq = db.$with("productViews").as(
+    db
+      .with(productsSq)
+      .select({
+        visitedAt: sql`${ProductViewTable.visitedAt} AT TIME ZONE ${timezone}`
+          .inlineParams()
+          .as("visitedAt"),
+        countryGroupId: CountryTable.countryGroupId,
+      })
+      .from(ProductViewTable)
+      .innerJoin(productsSq, eq(productsSq.id, ProductViewTable.productId))
+      .innerJoin(CountryTable, eq(CountryTable.id, ProductViewTable.countryId))
+      .where(({ visitedAt }) => gte(visitedAt, startDate))
+  );
+
+  return await db
+    .with(productViewSq)
+    .select({
+      dealHiveName: CountryGroupTable.name,
+      views: count(productViewSq.visitedAt),
+    })
+    .from(CountryGroupTable)
+    .leftJoin(
+      productViewSq,
+      eq(productViewSq.countryGroupId, CountryGroupTable.id)
+    )
+    .groupBy(({ dealHiveName }) => [dealHiveName])
+    .orderBy(({ dealHiveName }) => dealHiveName);
+}
+// -------------------------------------------------------------------------------------------------
+export function getViewsByDayChartData({
+  timezone,
+  productId,
+  userId,
+  interval,
+}: {
+  timezone: string;
+  productId?: string;
+  userId: string;
+  interval: (typeof CHART_INTERVALS)[keyof typeof CHART_INTERVALS];
+}) {
+  const cacheFn = cacheFunction(_getViewsByDayChartData, {
+    tags: [
+      getUserTag(userId, CACHE_TOPICS.productViews),
+      productId == null
+        ? getUserTag(userId, CACHE_TOPICS.products)
+        : getIdTag(productId, CACHE_TOPICS.products),
+    ],
+  });
+
+  return cacheFn({
+    timezone,
+    productId,
+    userId,
+    interval,
+  });
+}
+
+async function _getViewsByDayChartData({
+  timezone,
+  productId,
+  userId,
+  interval,
+}: {
+  timezone: string;
+  productId?: string;
+  userId: string;
+  interval: (typeof CHART_INTERVALS)[keyof typeof CHART_INTERVALS];
+}) {
+  const productsSq = getProductSubQuery(userId, productId);
+  const productViewSq = db.$with("productViews").as(
+    db
+      .with(productsSq)
+      .select({
+        visitedAt: sql`${ProductViewTable.visitedAt} AT TIME ZONE ${timezone}`
+          .inlineParams()
+          .as("visitedAt"),
+        productId: productsSq.id,
+      })
+      .from(ProductViewTable)
+      .innerJoin(productsSq, eq(productsSq.id, ProductViewTable.productId))
+  );
+
+  return await db
+    .with(productViewSq)
+    .select({
+      date: interval
+        .dateGrouper(sql.raw("series"))
+        .mapWith((dateString) => interval.dateFormatter(new Date(dateString))),
+      views: count(productViewSq.visitedAt),
+    })
+    .from(interval.sql)
+    .leftJoin(productViewSq, ({ date }) =>
+      eq(interval.dateGrouper(productViewSq.visitedAt), date)
+    )
+    .groupBy(({ date }) => [date])
+    .orderBy(({ date }) => date);
+}
+
+function getProductSubQuery(userId: string, productId: string | undefined) {
+  return db.$with("products").as(
+    db
+      .select()
+      .from(ProductTable)
+      .where(
+        and(
+          eq(ProductTable.clerkUserId, userId),
+          productId == null ? undefined : eq(ProductTable.id, productId)
+        )
+      )
+  );
+}
+// -------------------------------------------------------------------------------------------------
+// Utils:
+export const CHART_INTERVALS = {
+  last7Days: {
+    dateFormatter: (date: Date) => dateFormatter.format(date),
+    startDate: subDays(new Date(), 7),
+    label: "Last 7 Days",
+    sql: sql`GENERATE_SERIES(current_date - 7, current_date, '1 day'::interval) as series`,
+    dateGrouper: (col: SQL | SQL.Aliased) =>
+      sql<string>`DATE(${col})`.inlineParams(),
+  },
+  last30Days: {
+    dateFormatter: (date: Date) => dateFormatter.format(date),
+    startDate: subDays(new Date(), 30),
+    label: "Last 30 Days",
+    sql: sql`GENERATE_SERIES(current_date - 30, current_date, '1 day'::interval) as series`,
+    dateGrouper: (col: SQL | SQL.Aliased) =>
+      sql<string>`DATE(${col})`.inlineParams(),
+  },
+  last365Days: {
+    dateFormatter: (date: Date) => monthFormatter.format(date),
+    startDate: subDays(new Date(), 365),
+    label: "Last 365 Days",
+    sql: sql`GENERATE_SERIES(DATE_TRUNC('month', current_date - 365), DATE_TRUNC('month', current_date), '1 month'::interval) as series`,
+    dateGrouper: (col: SQL | SQL.Aliased) =>
+      sql<string>`DATE_TRUNC('month', ${col})`.inlineParams(),
+  },
+};
+
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "short",
+  timeZone: "UTC",
+});
+
+const monthFormatter = new Intl.DateTimeFormat(undefined, {
+  year: "2-digit",
+  month: "short",
+  timeZone: "UTC",
+});
 
 // -------------------------------------------------------------------------------------------------
