@@ -12,7 +12,7 @@ import {
   getUserTag,
   revalidateDbCache,
 } from "@/lib/cache";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { BatchItem } from "drizzle-orm/batch";
 
 // Get product from DB (with caching)
@@ -309,4 +309,21 @@ export async function updateProductCustomization(
   });
 }
 
+// -------------------------------------------------------------------------------------------------
+export function getProductCount(userId: string) {
+  const cacheFn = cacheFunction(_getProductCount, {
+    tags: [getUserTag(userId, CACHE_TOPICS.products)],
+  });
+
+  return cacheFn(userId);
+}
+
+async function _getProductCount(userId: string) {
+  const counts = await db
+    .select({ productCount: count() })
+    .from(ProductTable)
+    .where(eq(ProductTable.clerkUserId, userId));
+
+  return counts[0]?.productCount ?? 0;
+}
 // -------------------------------------------------------------------------------------------------

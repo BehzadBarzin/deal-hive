@@ -17,7 +17,7 @@ import {
   updateCountryDiscounts as updateCountryDiscountsDb,
   updateProductCustomization as updateProductCustomizationDb,
 } from "../db/products";
-import { canCustomizeBanner } from "../permissions";
+import { canCreateProduct, canCustomizeBanner } from "../permissions";
 
 // Server Action: Create Product In DB
 export async function createProduct(
@@ -29,7 +29,9 @@ export async function createProduct(
   // Parse form data using zod
   const { success, data } = productDetailsSchema.safeParse(unsafeData);
 
-  if (!success || userId == null) {
+  const canCreate = await canCreateProduct(userId);
+
+  if (!success || userId == null || !canCreate) {
     return { error: true, message: "There was an error creating your product" };
   }
 
