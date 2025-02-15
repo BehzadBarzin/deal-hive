@@ -21,17 +21,21 @@ import { ProductCustomizationForm } from "@/app/dashboard/_components/forms/Prod
 import { canCustomizeBanner, canRemoveBranding } from "@/server/permissions";
 
 interface IProps {
-  params: { productId: string };
-  searchParams: { tab?: string };
+  params: Promise<{ productId: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }
 
 const EditProductPage = async ({ params, searchParams }: IProps) => {
+  // To fix warning, await the `params` and searchParams
+  const { productId } = await params;
+  const { tab } = await searchParams;
+
   // Get auth data
   const { userId, redirectToSignIn } = await auth();
   if (userId == null) return redirectToSignIn();
 
   // Get product from DB
-  const product = await getProduct({ id: params.productId, userId: userId });
+  const product = await getProduct({ id: productId, userId: userId });
   if (product == null) return notFound();
 
   return (
@@ -39,7 +43,7 @@ const EditProductPage = async ({ params, searchParams }: IProps) => {
       backButtonHref="/dashboard/products"
       pageTitle="Edit Product"
     >
-      <Tabs defaultValue={searchParams.tab}>
+      <Tabs defaultValue={tab}>
         <TabsList className="bg-background/60">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="countries">Country</TabsTrigger>
@@ -49,10 +53,10 @@ const EditProductPage = async ({ params, searchParams }: IProps) => {
           <DetailsTab product={product} />
         </TabsContent>
         <TabsContent value="countries">
-          <CountryTab productId={params.productId} userId={userId} />
+          <CountryTab productId={productId} userId={userId} />
         </TabsContent>
         <TabsContent value="customization">
-          <CustomizationsTab productId={params.productId} userId={userId} />
+          <CustomizationsTab productId={productId} userId={userId} />
         </TabsContent>
       </Tabs>
     </PageWithBackButton>
