@@ -1,6 +1,11 @@
 import { db } from "@/drizzle/db";
 import { ProductTable, ProductViewTable } from "@/drizzle/schema";
-import { CACHE_TOPICS, cacheFunction, getUserTag } from "@/lib/cache";
+import {
+  CACHE_TOPICS,
+  cacheFunction,
+  getUserTag,
+  revalidateDbCache,
+} from "@/lib/cache";
 import { and, count, eq, gte } from "drizzle-orm";
 
 // -------------------------------------------------------------------------------------------------
@@ -26,6 +31,35 @@ async function _getProductViewCount(userId: string, startDate: Date) {
     );
 
   return counts[0]?.pricingViewCount ?? 0;
+}
+
+// -------------------------------------------------------------------------------------------------
+
+export async function createProductView({
+  productId,
+  countryId,
+  userId,
+}: {
+  productId: string;
+  countryId?: string;
+  userId: string;
+}) {
+  const [newRow] = await db
+    .insert(ProductViewTable)
+    .values({
+      productId: productId,
+      visitedAt: new Date(),
+      countryId: countryId,
+    })
+    .returning({ id: ProductViewTable.id });
+
+  if (newRow != null) {
+    revalidateDbCache({
+      topic: CACHE_TOPICS.productViews,
+      userId,
+      id: newRow.id,
+    });
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
